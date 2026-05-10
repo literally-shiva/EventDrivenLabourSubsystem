@@ -1,0 +1,6 @@
+@DigitalTwin.API_HostAddress = http://localhost:0
+
+GET {{DigitalTwin.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

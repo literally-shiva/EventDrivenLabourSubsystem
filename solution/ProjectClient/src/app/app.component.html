@@ -1,0 +1,180 @@
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div>
+        <h1>Project Planner</h1>
+        <p>DigitalTwin + CoreServer workspace</p>
+      </div>
+      <button class="secondary" (click)="openProjectDialog()">Projects</button>
+    </div>
+
+    <section class="panel" *ngIf="activeProject; else emptyState">
+      <div class="panel-title">
+        <h2>Project</h2>
+        <span class="status-pill" [class.running]="activeProject.isSimulationRunning">
+          {{ activeProject.isSimulationRunning ? 'Running' : 'Draft' }}
+        </span>
+      </div>
+
+      <label>
+        Name
+        <input [(ngModel)]="activeProject.name" placeholder="Project name" />
+      </label>
+
+      <div class="field-row">
+        <label>
+          Start
+          <input type="date" [(ngModel)]="activeProject.startDate" />
+        </label>
+        <label>
+          End
+          <input type="date" [(ngModel)]="activeProject.endDate" />
+        </label>
+      </div>
+
+      <div class="actions">
+        <button (click)="saveProject()" [disabled]="isSaving">Save project</button>
+        <button class="secondary" (click)="reloadFromServices()" [disabled]="!activeProject.id">Reload</button>
+        <button class="secondary" (click)="toggleSimulation()" [disabled]="!activeProject.id">
+          {{ activeProject.isSimulationRunning ? 'Stop simulation' : 'Start simulation' }}
+        </button>
+      </div>
+
+      <div class="actions compact">
+        <button class="secondary" (click)="addWork()">Add work</button>
+        <button class="secondary" (click)="removeSelectedWork()" [disabled]="!selectedWork">Remove work</button>
+        <button class="secondary" (click)="exportJson()">Export JSON</button>
+        <label class="file-button secondary">
+          Import JSON
+          <input type="file" accept=".json" (change)="importJson($event)" />
+        </label>
+      </div>
+
+      <p class="status-text" *ngIf="statusMessage">{{ statusMessage }}</p>
+    </section>
+
+    <section class="panel" *ngIf="selectedWork as work">
+      <div class="panel-title">
+        <h2>Work</h2>
+        <span>{{ work.id.startsWith('tmp-') ? 'new' : 'saved' }}</span>
+      </div>
+
+      <label>
+        Name
+        <input [(ngModel)]="work.name" (ngModelChange)="onSelectedWorkFormChange()" />
+      </label>
+
+      <div class="field-row">
+        <label>
+          Start
+          <input type="date" [(ngModel)]="work.startDate" (ngModelChange)="onSelectedWorkFormChange()" />
+        </label>
+        <label>
+          End
+          <input type="date" [(ngModel)]="work.endDate" (ngModelChange)="onSelectedWorkFormChange()" />
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label>
+          Planned days
+          <input type="number" min="1" [(ngModel)]="work.plannedDuration" (ngModelChange)="onSelectedWorkFormChange()" />
+        </label>
+        <label>
+          Current days
+          <input type="number" min="0" [(ngModel)]="work.currentDuration" (ngModelChange)="onSelectedWorkFormChange()" />
+        </label>
+      </div>
+
+      <div class="field-row">
+        <label>
+          Progress %
+          <input type="number" min="0" max="100" [(ngModel)]="work.percentComplete" (ngModelChange)="onSelectedWorkFormChange()" />
+        </label>
+        <label>
+          State
+          <input [(ngModel)]="work.currentState" (ngModelChange)="onSelectedWorkFormChange()" />
+        </label>
+      </div>
+
+      <div class="dependency-list">
+        <strong>Links</strong>
+        <div *ngIf="!dependencies.length" class="muted">Create links directly on the Gantt chart.</div>
+        <div class="dependency-item" *ngFor="let link of dependencies">
+          <span>{{ link.sourceWorkId.slice(0, 8) }} -> {{ link.targetWorkId.slice(0, 8) }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel events" *ngIf="timeline">
+      <div class="panel-title">
+        <h2>Detected events</h2>
+        <span>{{ timeline.events.length }}</span>
+      </div>
+      <div class="event-item" *ngFor="let event of timeline.events">
+        <strong>{{ event.eventType }}</strong>
+        <span>{{ event.timestamp | date:'short' }}</span>
+        <small>{{ event.workId }}</small>
+      </div>
+    </section>
+  </aside>
+
+  <main class="content">
+    <section class="workspace-header">
+      <div>
+        <h2>{{ activeProject?.name || 'No project selected' }}</h2>
+        <p *ngIf="activeProject">Works: {{ works.length }} | Links: {{ dependencies.length }}</p>
+      </div>
+    </section>
+
+    <div #ganttHost class="gantt-host"></div>
+  </main>
+</div>
+
+<ng-template #emptyState>
+  <section class="panel">
+    <h2>No project</h2>
+    <p class="muted">Choose an existing project or create a new one.</p>
+    <div class="actions">
+      <button (click)="openProjectDialog()">Open projects</button>
+      <button class="secondary" (click)="createNewProject()">New project</button>
+    </div>
+  </section>
+</ng-template>
+
+<div class="modal-backdrop" *ngIf="projectDialogOpen">
+  <div class="modal large">
+    <div class="panel-title">
+      <h3>Projects</h3>
+      <button class="icon-button" (click)="closeProjectDialog()">Close</button>
+    </div>
+
+    <div class="project-list" *ngIf="projects.length; else noProjects">
+      <button class="project-card" *ngFor="let project of projects; trackBy: trackProject" (click)="chooseProject(project.id)">
+        <strong>{{ project.name }}</strong>
+        <span>{{ project.startDate | date:'mediumDate' }} - {{ project.endDate | date:'mediumDate' }}</span>
+        <small>{{ project.works.length }} works</small>
+      </button>
+    </div>
+
+    <ng-template #noProjects>
+      <p class="muted">No saved projects yet.</p>
+    </ng-template>
+
+    <div class="actions">
+      <button (click)="createNewProject()">Create new project</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" *ngIf="unknownEvent">
+  <div class="modal">
+    <h3>Unknown event detected</h3>
+    <p>Provide a name for work {{ unknownEvent?.workId }}</p>
+    <input [(ngModel)]="unknownEventName" placeholder="Event name" />
+    <div class="actions">
+      <button (click)="saveUnknownEvent()">Save</button>
+      <button class="secondary" (click)="cancelUnknownEvent()">Cancel</button>
+    </div>
+  </div>
+</div>
