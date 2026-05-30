@@ -6,6 +6,7 @@ public interface ISimulationService
 {
     Task<ProjectDto> CreateProjectAsync(CreateProjectRequest request, CancellationToken cancellationToken = default);
     Task<ProjectDto> UpdateProjectAsync(Guid projectId, CreateProjectRequest request, CancellationToken cancellationToken = default);
+    Task DeleteProjectAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<ProjectDto>> GetProjectsAsync(CancellationToken cancellationToken = default);
     Task<ProjectDto?> GetProjectAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task StartSimulationAsync(Guid projectId, CancellationToken cancellationToken = default);

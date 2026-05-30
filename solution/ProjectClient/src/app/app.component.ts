@@ -39,30 +39,41 @@ export class AppComponent implements OnInit {
     gantt.init(this.ganttHost.nativeElement);
     this.attachGanttEvents();
 
-    await this.signalr.start();
-    this.signalr.workUpdated$.subscribe(work => this.applyWorkUpdate(work));
-    this.signalr.eventDetected$.subscribe(eventItem => {
-      if (this.timeline && this.activeProject?.id === eventItem.projectId) {
-        this.timeline.events = [eventItem, ...this.timeline.events];
-      }
-    });
-    this.signalr.durationChanged$.subscribe(change => {
-      const item = this.works.find(work => work.id === change.workId);
-      if (item) {
-        item.currentDuration = change.newDuration;
-        this.renderGantt();
-      }
-    });
-    this.signalr.unknownEventDetected$.subscribe(eventItem => {
-      if (this.activeProject?.id !== eventItem.projectId) {
-        return;
-      }
-      this.unknownEvent = eventItem;
-      this.unknownEventName = '';
-    });
+    let projectLoadFailed = false;
+    try {
+      await this.refreshProjects();
+    } catch (error) {
+      projectLoadFailed = true;
+      this.statusMessage = `Cannot load saved projects: ${this.toErrorMessage(error)}`;
+    }
 
-    await this.refreshProjects();
-    if (!this.projects.length) {
+    try {
+      await this.signalr.start();
+      this.signalr.workUpdated$.subscribe(work => this.applyWorkUpdate(work));
+      this.signalr.eventDetected$.subscribe(eventItem => {
+        if (this.timeline && this.activeProject?.id === eventItem.projectId) {
+          this.timeline.events = [eventItem, ...this.timeline.events];
+        }
+      });
+      this.signalr.durationChanged$.subscribe(change => {
+        const item = this.works.find(work => work.id === change.workId);
+        if (item) {
+          item.currentDuration = change.newDuration;
+          this.renderGantt();
+        }
+      });
+      this.signalr.unknownEventDetected$.subscribe(eventItem => {
+        if (this.activeProject?.id !== eventItem.projectId) {
+          return;
+        }
+        this.unknownEvent = eventItem;
+        this.unknownEventName = '';
+      });
+    } catch (error) {
+      this.statusMessage = `Realtime unavailable: ${this.toErrorMessage(error)}`;
+    }
+
+    if (!projectLoadFailed && !this.projects.length) {
       this.createNewProject();
     }
   }
@@ -158,6 +169,29 @@ export class AppComponent implements OnInit {
 
     await this.chooseProject(this.activeProject.id);
     this.statusMessage = 'Project reloaded.';
+  }
+
+  async deleteActiveProject(): Promise<void> {
+    if (!this.activeProject?.id) {
+      return;
+    }
+
+    if (!confirm('Are you sure you want to delete this project?')) {
+      return;
+    }
+
+    try {
+      await firstValueFrom(this.api.deleteProject(this.activeProject.id));
+      await this.refreshProjects();
+      this.activeProject = undefined;
+      this.works = [];
+      this.dependencies = [];
+      this.timeline = undefined;
+      this.projectDialogOpen = true;
+      this.statusMessage = 'Project deleted.';
+    } catch (error) {
+      this.statusMessage = this.toErrorMessage(error);
+    }
   }
 
   addWork(): void {
@@ -313,14 +347,19 @@ export class AppComponent implements OnInit {
 
       const task = gantt.getTask(id);
       const startDate = task.start_date ?? new Date();
-      const endDate = task.end_date ?? startDate;
+      const duration = Math.max(1, Math.round(task.duration || 1));
+
+      // Calculate endDate from startDate + duration
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + duration);
+
       const newWork: WorkModel = {
         id: String(task.id),
         projectId: this.activeProject?.id || undefined,
         name: task.text || `Work ${this.works.length + 1}`,
         startDate: this.toDateOnly(startDate),
         endDate: this.toDateOnly(endDate),
-        plannedDuration: Math.max(1, Math.round(task.duration || 1)),
+        plannedDuration: duration,
         currentDuration: 0,
         percentComplete: 0,
         currentState: 'Planned',
@@ -416,6 +455,7 @@ export class AppComponent implements OnInit {
   private normalizeWork(work: WorkModel, projectId: string): WorkModel {
     return {
       ...work,
+      id: work.id || this.createClientId(),
       projectId: work.projectId || projectId || undefined,
       startDate: this.toDateOnly(work.startDate),
       endDate: this.toDateOnly(work.endDate),
@@ -474,11 +514,17 @@ export class AppComponent implements OnInit {
     }
 
     const startDate = task.start_date ?? new Date(work.startDate);
-    const endDate = task.end_date ?? startDate;
+    const duration = Math.max(1, Math.round(task.duration || work.plannedDuration));
+
     work.name = task.text || work.name;
     work.startDate = this.toDateOnly(startDate);
+    work.plannedDuration = duration;
+
+    // Calculate endDate from startDate + duration
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + duration);
     work.endDate = this.toDateOnly(endDate);
-    work.plannedDuration = Math.max(1, Math.round(task.duration || work.plannedDuration));
+
     this.selectedWorkId = work.id;
     this.syncProjectBoundsFromWorks();
     this.syncActiveProject();
@@ -513,7 +559,7 @@ export class AppComponent implements OnInit {
       startDate: this.activeProject?.startDate || this.toDateOnly(new Date()),
       endDate: this.activeProject?.endDate || this.toDateOnly(new Date()),
       works: this.works.map(work => ({
-        id: this.isClientOnlyId(work.id) ? null : work.id,
+        id: work.id || null,
         name: work.name,
         startDate: work.startDate,
         endDate: work.endDate,
@@ -529,15 +575,19 @@ export class AppComponent implements OnInit {
     this.suppressGanttEvents = true;
     gantt.clearAll();
     gantt.parse({
-      data: this.works.map(work => ({
-        id: work.id,
-        text: work.name,
-        start_date: new Date(work.startDate),
-        end_date: new Date(work.endDate),
-        duration: Math.max(1, Math.round(work.plannedDuration)),
-        currentDuration: Math.max(0, Math.round(work.currentDuration)),
-        progress: Math.max(0, Math.min(1, work.percentComplete / 100))
-      })),
+      data: this.works.map(work => {
+        // Parse dates as local dates to avoid timezone issues
+        const startDate = this.parseLocalDate(work.startDate);
+
+        return {
+          id: work.id,
+          text: work.name,
+          start_date: startDate,
+          duration: Math.max(1, Math.round(work.plannedDuration)),
+          currentDuration: Math.max(0, Math.round(work.currentDuration)),
+          progress: Math.max(0, Math.min(1, work.percentComplete / 100))
+        };
+      }),
       links: this.dependencies.map(link => ({
         id: `${link.sourceWorkId}-${link.targetWorkId}`,
         source: link.sourceWorkId,
@@ -553,6 +603,12 @@ export class AppComponent implements OnInit {
     this.suppressGanttEvents = false;
   }
 
+  private parseLocalDate(dateString: string): Date {
+    // Parse YYYY-MM-DD as local date, not UTC
+    const [year, month, day] = dateString.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+
   private calculateDuration(startDate: string, endDate: string, fallback: number): number {
     const start = new Date(startDate);
     const end = new Date(endDate);
@@ -566,7 +622,11 @@ export class AppComponent implements OnInit {
 
   private toDateOnly(value: string | Date): string {
     const date = value instanceof Date ? value : new Date(value);
-    return date.toISOString().slice(0, 10);
+    // Use local date components to avoid timezone issues
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
 
   private addDays(dateValue: string, days: number): Date {
@@ -576,11 +636,7 @@ export class AppComponent implements OnInit {
   }
 
   private createClientId(): string {
-    return `tmp-${crypto.randomUUID()}`;
-  }
-
-  private isClientOnlyId(id: string): boolean {
-    return id.startsWith('tmp-');
+    return crypto.randomUUID();
   }
 
   private toErrorMessage(error: unknown): string {
@@ -588,6 +644,16 @@ export class AppComponent implements OnInit {
       const payload = (error as { error?: unknown }).error;
       if (typeof payload === 'string') {
         return payload;
+      }
+    }
+
+    if (typeof error === 'object' && error) {
+      const typedError = error as { status?: number; statusText?: string };
+      if (typedError.status && typedError.statusText) {
+        return `${typedError.status}: ${typedError.statusText}`;
+      }
+      if (typedError.statusText) {
+        return typedError.statusText;
       }
     }
 

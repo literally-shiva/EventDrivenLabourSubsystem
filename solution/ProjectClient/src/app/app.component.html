@@ -34,10 +34,11 @@
 
       <div class="actions">
         <button (click)="saveProject()" [disabled]="isSaving">Save project</button>
-        <button class="secondary" (click)="reloadFromServices()" [disabled]="!activeProject.id">Reload</button>
-        <button class="secondary" (click)="toggleSimulation()" [disabled]="!activeProject.id">
-          {{ activeProject.isSimulationRunning ? 'Stop simulation' : 'Start simulation' }}
+        <button class="secondary" (click)="reloadFromServices()" [disabled]="!activeProject?.id">Reload</button>
+        <button class="secondary" (click)="toggleSimulation()" [disabled]="!activeProject?.id">
+          {{ activeProject?.isSimulationRunning ? 'Stop simulation' : 'Start simulation' }}
         </button>
+        <button class="secondary" (click)="deleteActiveProject()" [disabled]="!activeProject?.id">Delete project</button>
       </div>
 
       <div class="actions compact">
@@ -56,7 +57,7 @@
     <section class="panel" *ngIf="selectedWork as work">
       <div class="panel-title">
         <h2>Work</h2>
-        <span>{{ work.id.startsWith('tmp-') ? 'new' : 'saved' }}</span>
+        <span>Details</span>
       </div>
 
       <label>

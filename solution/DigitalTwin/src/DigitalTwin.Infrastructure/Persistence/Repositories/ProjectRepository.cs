@@ -26,4 +26,10 @@ public class ProjectRepository(DigitalTwinDbContext dbContext) : IProjectReposit
 
     public async Task AddAsync(Project project, CancellationToken cancellationToken = default) =>
         await dbContext.Projects.AddAsync(project, cancellationToken);
+
+    public Task DeleteAsync(Project project, CancellationToken cancellationToken = default)
+    {
+        dbContext.Projects.Remove(project);
+        return Task.CompletedTask;
+    }
 }

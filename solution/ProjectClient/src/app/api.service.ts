@@ -30,6 +30,10 @@ export class ApiService {
     return this.http.put<ProjectModel>(`${this.twinBaseUrl}/projects/${projectId}`, payload);
   }
 
+  deleteProject(projectId: string): Observable<void> {
+    return this.http.delete<void>(`${this.twinBaseUrl}/projects/${projectId}`);
+  }
+
   startSimulation(projectId: string): Observable<void> {
     return this.http.post<void>(`${this.twinBaseUrl}/simulation/start/${projectId}`, {});
   }

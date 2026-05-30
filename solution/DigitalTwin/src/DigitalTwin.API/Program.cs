@@ -11,6 +11,10 @@ builder.Host.UseSerilog((context, configuration) =>
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("client", policy => policy.AllowAnyHeader().AllowAnyMethod().AllowAnyOrigin());
+});
 
 var app = builder.Build();
 
@@ -25,6 +29,8 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
+
+app.UseCors("client");
 
 app.MapControllers();
 app.Run("http://localhost:5001");

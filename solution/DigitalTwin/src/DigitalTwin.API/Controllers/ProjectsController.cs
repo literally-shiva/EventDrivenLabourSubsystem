@@ -26,4 +26,11 @@ public class ProjectsController(ISimulationService simulationService) : Controll
         var project = await simulationService.GetProjectAsync(id, cancellationToken);
         return project is null ? NotFound() : Ok(project);
     }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> DeleteProject(Guid id, CancellationToken cancellationToken)
+    {
+        await simulationService.DeleteProjectAsync(id, cancellationToken);
+        return NoContent();
+    }
 }
