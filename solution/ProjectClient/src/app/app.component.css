@@ -235,3 +235,24 @@ button:disabled {
     border-bottom: 1px solid #d7deea;
   }
 }
+
+/* ── Gantt task bar colours by Markov stability state ─────────────────────── */
+.gantt_task_line.stability-stable  { background: #3b82f6; border-color: #2563eb; }
+.gantt_task_line.stability-low     { background: #f59e0b; border-color: #d97706; }
+.gantt_task_line.stability-medium  { background: #f97316; border-color: #ea580c; }
+.gantt_task_line.stability-high    { background: #ef4444; border-color: #dc2626; }
+.gantt_task_line.stability-critical{ background: #8b5cf6; border-color: #7c3aed; }
+
+.gantt_task_line.stability-low     .gantt_task_progress,
+.gantt_task_line.stability-medium  .gantt_task_progress,
+.gantt_task_line.stability-high    .gantt_task_progress,
+.gantt_task_line.stability-critical .gantt_task_progress { background: rgba(0,0,0,.2); }
+
+.state-badge {
+  font-size: 11px;
+  padding: 1px 4px;
+  background: rgba(0,0,0,.18);
+  border-radius: 3px;
+  color: #fff;
+  margin-left: 4px;
+}

@@ -71,11 +71,26 @@ public class MetricsProcessingService(
             };
 
             work.PercentComplete = item.ProgressPercent;
-            work.CurrentDuration = Math.Max(work.CurrentDuration, 1);
+            // On first tick CurrentDuration is 0 — initialise to PlannedDuration so event impacts
+            // produce visible changes (e.g. 5 → 6.2 → 7.8) rather than starting from 1.
+            if (work.CurrentDuration <= 0)
+                work.CurrentDuration = work.PlannedDuration;
             await workRepository.AddOrUpdateAsync(work, cancellationToken);
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // Broadcast real-time progress for EVERY work on every tick, not only event candidates.
+        // This drives the continuous Gantt progress bar update (~3 s cadence).
+        foreach (var item in request.Metrics)
+        {
+            var w = await workRepository.GetAsync(item.WorkId, cancellationToken);
+            if (w is null) continue;
+            await realtimeNotifier.WorkUpdatedAsync(new WorkTimelineDto(
+                w.Id, w.Name, w.StartDate, w.EndDate,
+                w.PlannedDuration, w.CurrentDuration,
+                w.PercentComplete, w.CurrentState.ToString()));
+        }
 
         // 4. ML clustering — degrade gracefully if MLService is unavailable
         MlClusterResponse clusterResponse;

@@ -394,7 +394,7 @@ export class AppComponent implements OnInit {
   }
 
   private configureGantt(): void {
-    gantt.config.grid_width = 360;
+    gantt.config.grid_width = 380;
     gantt.config.open_tree_initially = true;
     gantt.config.drag_move = true;
     gantt.config.drag_resize = true;
@@ -402,13 +402,29 @@ export class AppComponent implements OnInit {
     gantt.config.order_branch = true;
     gantt.config.date_format = '%Y-%m-%d';
     gantt.config.columns = [
-      { name: 'text', label: 'Work', tree: true, width: 180 },
+      { name: 'text', label: 'Work', tree: true, width: 160 },
       { name: 'start_date', label: 'Start', align: 'center', width: 90 },
-      { name: 'duration', label: 'Plan', align: 'center', width: 70 },
-      { name: 'currentDuration', label: 'Current', align: 'center', width: 70 },
-      { name: 'add', label: '', width: 44 }
+      { name: 'plannedDuration', label: 'Plan', align: 'center', width: 45 },
+      { name: 'currentDuration', label: 'Curr', align: 'center', width: 45 },
+      { name: 'stabilityState', label: 'State', align: 'center', width: 40 },
+      { name: 'add', label: '', width: 40 }
     ];
-    gantt.templates.task_text = (_start, _end, task) => `${task.text}`;
+    // Colour the Gantt bar by stability state so Markov transitions are immediately visible
+    gantt.templates.task_class = (_start: Date, _end: Date, task: any): string => {
+      const s: string = task.stabilityState || '';
+      if (s.includes('Critical')) return 'stability-critical';
+      if (s.includes('High')) return 'stability-high';
+      if (s.includes('Medium')) return 'stability-medium';
+      if (s.includes('Low')) return 'stability-low';
+      return 'stability-stable';
+    };
+    gantt.templates.task_text = (_start: Date, _end: Date, task: any) => task.text as string;
+    // Show truncated stability label inside bar
+    gantt.templates.rightside_text = (_start: Date, _end: Date, task: any) => {
+      const s: string = task.stabilityState || '';
+      if (s === 'S0Stable') return '';
+      return `<span class="state-badge">${s.replace('WorkStabilityState.', '').replace('Sensitivity', '')}</span>`;
+    };
   }
 
   private attachGanttEvents(): void {
@@ -591,15 +607,16 @@ export class AppComponent implements OnInit {
     }
 
     const startDate = task.start_date ?? new Date(work.startDate);
-    const duration = Math.max(1, Math.round(task.duration || work.plannedDuration));
+    // task.plannedDuration is the user-editable plan field stored on the task;
+    // fall back to task.duration only when the task was added without our custom field.
+    const planned = Math.max(1, Math.round((task as any).plannedDuration || task.duration || work.plannedDuration));
 
     work.name = task.text || work.name;
     work.startDate = this.toDateOnly(startDate);
-    work.plannedDuration = duration;
+    work.plannedDuration = planned;
 
-    // Calculate endDate from startDate + duration
     const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + duration);
+    endDate.setDate(endDate.getDate() + planned);
     work.endDate = this.toDateOnly(endDate);
 
     this.selectedWorkId = work.id;
@@ -653,15 +670,21 @@ export class AppComponent implements OnInit {
     gantt.clearAll();
     gantt.parse({
       data: this.works.map(work => {
-        // Parse dates as local dates to avoid timezone issues
         const startDate = this.parseLocalDate(work.startDate);
+        const planned = Math.max(1, Math.round(work.plannedDuration));
+        // Use currentDuration for the bar when it exceeds the plan (event impacts);
+        // fall back to planned when currentDuration hasn't been set yet.
+        const current = work.currentDuration > 0 ? Math.round(work.currentDuration) : planned;
+        const barDuration = Math.max(planned, current);
 
         return {
           id: work.id,
           text: work.name,
           start_date: startDate,
-          duration: Math.max(1, Math.round(work.plannedDuration)),
-          currentDuration: Math.max(0, Math.round(work.currentDuration)),
+          duration: barDuration,           // drives the visible bar length
+          plannedDuration: planned,        // shown in 'Plan' column
+          currentDuration: current,        // shown in 'Curr' column
+          stabilityState: work.currentState || 'S0Stable',
           progress: Math.max(0, Math.min(1, work.percentComplete / 100))
         };
       }),
