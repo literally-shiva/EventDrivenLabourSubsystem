@@ -18,7 +18,20 @@ public class SimulationService(
         var project = BuildProject(request);
         await projectRepository.AddAsync(project, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return project.ToDto();
+
+        // Add dependencies separately to avoid EF duplicate-tracking of WorkDependency via both navigation collections
+        var deps = BuildDependencyList(project, request.Dependencies);
+        if (deps.Count > 0)
+        {
+            dbContext.WorkDependencies.AddRange(deps);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        // Reload the project with all relationships populated
+        dbContext.ChangeTracker.Clear();
+        var final = await projectRepository.GetByIdAsync(project.Id, cancellationToken)
+                    ?? throw new InvalidOperationException("Project not found after save.");
+        return final.ToDto();
     }
 
     public async Task<ProjectDto> UpdateProjectAsync(Guid projectId, CreateProjectRequest request, CancellationToken cancellationToken = default)
@@ -190,7 +203,8 @@ public class SimulationService(
             project.Works.Add(work);
         }
 
-        ApplyDependencies(project, request.Dependencies);
+        // Dependencies are NOT added here to avoid EF duplicate-tracking.
+        // They are added separately after the project graph is saved (in CreateProjectAsync).
         return project;
     }
 
@@ -210,27 +224,30 @@ public class SimulationService(
     private static DateTime ToUtc(DateTime value) =>
         value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
-    private static void ApplyDependencies(Project project, IReadOnlyCollection<CreateWorkDependencyRequest>? dependencies)
+    private static List<WorkDependency> BuildDependencyList(Project project, IReadOnlyCollection<CreateWorkDependencyRequest>? dependencies)
     {
         var worksById = project.Works.ToDictionary(work => work.Id);
         var requestedDependencies = dependencies ?? BuildDefaultDependencies(project.Works);
+        var result = new List<WorkDependency>();
 
         foreach (var dependency in requestedDependencies
                      .Where(link => link.SourceWorkId != link.TargetWorkId)
                      .DistinctBy(link => new { link.SourceWorkId, link.TargetWorkId }))
         {
-            if (!worksById.TryGetValue(dependency.SourceWorkId, out var parent) ||
-                !worksById.TryGetValue(dependency.TargetWorkId, out var child))
+            if (!worksById.ContainsKey(dependency.SourceWorkId) ||
+                !worksById.ContainsKey(dependency.TargetWorkId))
             {
                 continue;
             }
 
-            parent.ChildDependencies.Add(new WorkDependency
+            result.Add(new WorkDependency
             {
-                ParentWorkId = parent.Id,
-                ChildWorkId = child.Id
+                ParentWorkId = dependency.SourceWorkId,
+                ChildWorkId = dependency.TargetWorkId
             });
         }
+
+        return result;
     }
 
     private static List<CreateWorkDependencyRequest> BuildDefaultDependencies(IEnumerable<Work> works)

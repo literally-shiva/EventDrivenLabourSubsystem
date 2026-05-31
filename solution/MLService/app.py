@@ -136,7 +136,7 @@ def classify(request: ClassifyRequest) -> ClassifyResponse:
     prediction = registry.classifier.predict(vector)[0]
     probabilities = registry.classifier.predict_proba(vector)[0]
     confidence = float(np.max(probabilities))
-    is_known = confidence >= 0.60
+    is_known = confidence >= 0.35
 
     return ClassifyResponse(
         isKnown=is_known,
@@ -172,3 +172,8 @@ def register_event(request: RegisterEventRequest) -> dict:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "trained": registry.classifier is not None}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

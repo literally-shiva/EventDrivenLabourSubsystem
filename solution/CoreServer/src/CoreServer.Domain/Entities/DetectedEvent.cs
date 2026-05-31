@@ -12,4 +12,6 @@ public class DetectedEvent
     public bool IsKnown { get; set; }
     public double Confidence { get; set; }
     public DateTime Timestamp { get; set; }
+    /// <summary>JSON-serialised double[] — the ML feature vector of this event candidate.</summary>
+    public string FeatureVector { get; set; } = string.Empty;
 }

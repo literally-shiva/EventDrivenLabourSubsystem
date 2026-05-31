@@ -37,16 +37,23 @@ public class MarkovStateEngine(IWorkMarkovStateRepository stateRepository, IUnit
     private static int SampleState(int row, string eventType)
     {
         var severityBoost = eventType.Contains("Failed", StringComparison.OrdinalIgnoreCase) || eventType.Contains("Delayed", StringComparison.OrdinalIgnoreCase) ? 0.12 : 0.05;
+
+        // Build raw probabilities with severity boost on higher states
+        var probs = new double[5];
+        for (var i = 0; i < 5; i++)
+            probs[i] = Matrix[row, i] + (i > row ? severityBoost / 4 : 0);
+
+        // Normalise so row sums to exactly 1.0 (prevents CDF exceeding 1.0)
+        var sum = 0d;
+        for (var i = 0; i < 5; i++) sum += probs[i];
+
         var random = Random.Shared.NextDouble();
         var cumulative = 0d;
         for (var i = 0; i < 5; i++)
         {
-            var probability = Matrix[row, i] + (i > row ? severityBoost / 4 : 0);
-            cumulative += probability;
+            cumulative += probs[i] / sum;
             if (random <= cumulative)
-            {
                 return i;
-            }
         }
 
         return 4;

@@ -49,6 +49,11 @@
           Import JSON
           <input type="file" accept=".json" (change)="importJson($event)" />
         </label>
+        <button class="secondary" (click)="exportCsv()" [disabled]="!works.length">Export CSV</button>
+        <label class="file-button secondary">
+          Import CSV
+          <input type="file" accept=".csv" (change)="importCsv($event)" />
+        </label>
       </div>
 
       <p class="status-text" *ngIf="statusMessage">{{ statusMessage }}</p>

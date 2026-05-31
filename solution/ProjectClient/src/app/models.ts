@@ -58,4 +58,5 @@ export interface DetectedEvent {
   isKnown: boolean;
   confidence: number;
   timestamp: string;
+  featureVector?: number[];
 }

@@ -6,4 +6,4 @@ public record CreateEventPatternRequest(string Name, double[] Vector, string Eve
 
 public record RegisterUnknownEventRequest(Guid WorkId, Guid ProjectId, string Name, double[] Vector);
 
-public record DetectedEventDto(Guid Id, Guid ProjectId, Guid WorkId, string Name, string EventType, bool IsKnown, double Confidence, DateTime Timestamp);
+public record DetectedEventDto(Guid Id, Guid ProjectId, Guid WorkId, string Name, string EventType, bool IsKnown, double Confidence, DateTime Timestamp, double[] FeatureVector);

@@ -266,6 +266,24 @@ export class AppComponent implements OnInit {
     anchor.click();
   }
 
+  exportCsv(): void {
+    if (!this.activeProject || !this.works.length) {
+      return;
+    }
+
+    this.syncActiveProject();
+    const header = 'id,name,startDate,endDate,plannedDuration,currentDuration,percentComplete,currentState,isCompleted';
+    const rows = this.works.map(w =>
+      [w.id, `"${w.name}"`, w.startDate, w.endDate, w.plannedDuration, w.currentDuration, w.percentComplete, w.currentState ?? '', w.isCompleted ?? false].join(',')
+    );
+    const csv = [header, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const anchor = document.createElement('a');
+    anchor.href = URL.createObjectURL(blob);
+    anchor.download = `${this.activeProject.name || 'project'}-works.csv`;
+    anchor.click();
+  }
+
   importJson(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -287,6 +305,65 @@ export class AppComponent implements OnInit {
     });
   }
 
+  importCsv(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file || !this.activeProject) {
+      return;
+    }
+
+    file.text().then(content => {
+      const lines = content.trim().split('\n');
+      if (lines.length < 2) {
+        this.statusMessage = 'CSV file has no data rows.';
+        return;
+      }
+
+      // Parse header → column index map
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      const col = (name: string) => headers.indexOf(name);
+
+      const parsedWorks: WorkModel[] = [];
+      for (const line of lines.slice(1)) {
+        if (!line.trim()) continue;
+        // Handle quoted fields (e.g. "Work name with comma")
+        const cells = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|(?<=,)$|^(?=,))/g)?.map(c => c.replace(/^"|"$/g, '').trim()) ?? line.split(',').map(c => c.trim());
+
+        const name = col('name') >= 0 ? (cells[col('name')] || `Work ${parsedWorks.length + 1}`) : `Work ${parsedWorks.length + 1}`;
+        const startDate = col('startdate') >= 0 ? this.toDateOnly(cells[col('startdate')] || this.activeProject!.startDate) : this.activeProject!.startDate;
+        const plannedDuration = col('plannedduration') >= 0 ? Math.max(1, Number(cells[col('plannedduration')]) || 1) : 5;
+        const endDate = col('enddate') >= 0 ? this.toDateOnly(cells[col('enddate')] || this.toDateOnly(this.addDays(startDate, plannedDuration))) : this.toDateOnly(this.addDays(startDate, plannedDuration));
+        const currentDuration = col('currentduration') >= 0 ? Math.max(0, Number(cells[col('currentduration')]) || 0) : 0;
+        const percentComplete = col('percentcomplete') >= 0 ? this.clampPercent(Number(cells[col('percentcomplete')]) || 0) : 0;
+
+        parsedWorks.push(this.normalizeWork({
+          id: col('id') >= 0 ? (cells[col('id')] || this.createClientId()) : this.createClientId(),
+          name,
+          startDate,
+          endDate,
+          plannedDuration,
+          currentDuration,
+          percentComplete,
+          currentState: col('currentstate') >= 0 ? (cells[col('currentstate')] || 'S0Stable') : 'S0Stable',
+          isCompleted: col('iscompleted') >= 0 ? cells[col('iscompleted')] === 'true' : percentComplete >= 100
+        }, this.activeProject!.id));
+      }
+
+      if (!parsedWorks.length) {
+        this.statusMessage = 'No valid works found in CSV.';
+        return;
+      }
+
+      this.works = parsedWorks;
+      this.dependencies = [];
+      this.syncProjectBoundsFromWorks();
+      this.syncActiveProject();
+      this.renderGantt();
+      this.statusMessage = `Imported ${parsedWorks.length} works from CSV. Save to persist.`;
+      input.value = '';
+    });
+  }
+
   saveUnknownEvent(): void {
     if (!this.unknownEvent || !this.unknownEventName.trim()) {
       return;
@@ -296,7 +373,7 @@ export class AppComponent implements OnInit {
       workId: this.unknownEvent.workId,
       projectId: this.unknownEvent.projectId,
       name: this.unknownEventName,
-      vector: [4, 220, 2, 1, 4, 2]
+      vector: this.unknownEvent.featureVector ?? []
     }).subscribe(() => {
       this.unknownEvent = undefined;
       this.unknownEventName = '';
@@ -604,8 +681,10 @@ export class AppComponent implements OnInit {
   }
 
   private parseLocalDate(dateString: string): Date {
+    // Strip time component if present (e.g. "2025-06-01T00:00:00Z" → "2025-06-01")
+    const datePart = dateString.split('T')[0];
     // Parse YYYY-MM-DD as local date, not UTC
-    const [year, month, day] = dateString.split('-').map(Number);
+    const [year, month, day] = datePart.split('-').map(Number);
     return new Date(year, month - 1, day);
   }
 

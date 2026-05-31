@@ -7,7 +7,6 @@ namespace CoreServer.Infrastructure.Services;
 public class DurationRecalculationEngine(
     IWorkRepository workRepository,
     IWorkMarkovStateRepository stateRepository,
-    IDetectedEventRepository detectedEventRepository,
     IDurationHistoryRepository durationHistoryRepository,
     IUnitOfWork unitOfWork) : IDurationRecalculationEngine
 {

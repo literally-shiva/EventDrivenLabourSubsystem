@@ -31,12 +31,18 @@ public class EventRegistryService(IEventPatternRepository eventPatternRepository
 
     public async Task RegisterUnknownEventAsync(RegisterUnknownEventRequest request, CancellationToken cancellationToken = default)
     {
+        // Try to parse the user-provided name as a known EventType so the SVM learns the correct label.
+        // If the name does not match any enum value, keep Unknown.
+        var eventType = Enum.TryParse<EventType>(request.Name, ignoreCase: true, out var parsed)
+            ? parsed
+            : EventType.Unknown;
+
         var pattern = new EventPattern
         {
             Id = Guid.NewGuid(),
             Name = request.Name,
             Vector = JsonSerializer.Serialize(request.Vector),
-            EventType = EventType.Unknown,
+            EventType = eventType,
             AverageDelayImpact = 1.15,
             CreatedAt = DateTime.UtcNow
         };

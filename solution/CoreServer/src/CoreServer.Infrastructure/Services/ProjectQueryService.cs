@@ -19,6 +19,11 @@ public class ProjectQueryService(IWorkRepository workRepository, IDetectedEventR
 
     public async Task<IReadOnlyCollection<DetectedEventDto>> GetEventsAsync(Guid projectId, CancellationToken cancellationToken = default) =>
         (await detectedEventRepository.GetByProjectAsync(projectId, cancellationToken))
-        .Select(x => new DetectedEventDto(x.Id, x.ProjectId, x.WorkId, x.Name, x.EventType.ToString(), x.IsKnown, x.Confidence, x.Timestamp))
+        .Select(x => new DetectedEventDto(
+            x.Id, x.ProjectId, x.WorkId, x.Name,
+            x.EventType.ToString(), x.IsKnown, x.Confidence, x.Timestamp,
+            string.IsNullOrEmpty(x.FeatureVector)
+                ? []
+                : System.Text.Json.JsonSerializer.Deserialize<double[]>(x.FeatureVector) ?? []))
         .ToArray();
 }
