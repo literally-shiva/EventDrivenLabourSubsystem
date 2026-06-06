@@ -30,6 +30,8 @@ export class AppComponent implements OnInit {
   projectDialogOpen = true;
   unknownEvent?: DetectedEvent;
   unknownEventName = '';
+  editingEventId?: string;
+  editingEventName = '';
   statusMessage = '';
   isSaving = false;
   activeTab: 'gantt' | 'metrics' = 'gantt';
@@ -79,13 +81,7 @@ export class AppComponent implements OnInit {
           this.renderGantt();
         }
       });
-      this.signalr.unknownEventDetected$.subscribe(eventItem => {
-        if (this.activeProject?.id !== eventItem.projectId) {
-          return;
-        }
-        this.unknownEvent = eventItem;
-        this.unknownEventName = '';
-      });
+      // Автоматическое модальное окно убрано - пользователь именует события в списке
     } catch (error) {
       this.statusMessage = `Realtime unavailable: ${this.toErrorMessage(error)}`;
     }
@@ -398,6 +394,36 @@ export class AppComponent implements OnInit {
   cancelUnknownEvent(): void {
     this.unknownEvent = undefined;
     this.unknownEventName = '';
+  }
+
+  startEditingEvent(event: DetectedEvent): void {
+    this.editingEventId = event.id;
+    this.editingEventName = event.name || '';
+  }
+
+  saveEventName(event: DetectedEvent): void {
+    if (!this.editingEventName.trim()) {
+      this.cancelEventEdit();
+      return;
+    }
+
+    this.api.registerUnknownEvent({
+      workId: event.workId,
+      projectId: event.projectId,
+      name: this.editingEventName.trim(),
+      vector: event.featureVector ?? []
+    }).subscribe(() => {
+      // Обновляем событие в локальном списке
+      event.name = this.editingEventName.trim();
+      event.isKnown = true;
+      this.editingEventId = undefined;
+      this.editingEventName = '';
+    });
+  }
+
+  cancelEventEdit(): void {
+    this.editingEventId = undefined;
+    this.editingEventName = '';
   }
 
   trackProject(_: number, project: ProjectModel): string {

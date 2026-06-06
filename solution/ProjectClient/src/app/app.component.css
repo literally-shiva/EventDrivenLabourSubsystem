@@ -166,6 +166,31 @@ button:disabled {
   font-size: 13px;
 }
 
+.event-item-header strong.editable {
+  cursor: pointer;
+  color: #1d4ed8;
+  text-decoration: underline dotted;
+}
+
+.event-item-header strong.editable:hover {
+  color: #1e40af;
+}
+
+.event-name-input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid #1d4ed8;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  outline: none;
+}
+
+.event-name-input:focus {
+  border-color: #1e40af;
+  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.1);
+}
+
 .event-confidence {
   font-size: 11px;
   color: #5a687d;

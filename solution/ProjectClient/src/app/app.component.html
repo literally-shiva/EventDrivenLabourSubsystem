@@ -120,7 +120,22 @@
       <div class="event-item" *ngFor="let event of timeline.events">
         <div class="event-item-header">
           <span class="event-dot event-marker event-marker--{{ getEventMarkerClass(event.eventType) }}"></span>
-          <strong>{{ event.eventType }}</strong>
+          <strong *ngIf="!event.isKnown && editingEventId === event.id">
+            <input
+              [(ngModel)]="editingEventName"
+              (keyup.enter)="saveEventName(event)"
+              (keyup.escape)="cancelEventEdit()"
+              placeholder="Event name"
+              class="event-name-input"
+              autofocus />
+          </strong>
+          <strong
+            *ngIf="event.isKnown || editingEventId !== event.id"
+            (click)="!event.isKnown && startEditingEvent(event)"
+            [class.editable]="!event.isKnown"
+            [title]="!event.isKnown ? 'Click to name this event' : ''">
+            {{ event.name || event.eventType }}
+          </strong>
           <span class="event-confidence">{{ (event.confidence * 100) | number:'1.0-0' }}%</span>
         </div>
         <span class="muted">{{ getWorkName(event.workId) }}</span>
@@ -193,14 +208,3 @@
   </div>
 </div>
 
-<div class="modal-backdrop" *ngIf="unknownEvent">
-  <div class="modal">
-    <h3>Unknown event detected</h3>
-    <p>Provide a name for work {{ unknownEvent?.workId }}</p>
-    <input [(ngModel)]="unknownEventName" placeholder="Event name" />
-    <div class="actions">
-      <button (click)="saveUnknownEvent()">Save</button>
-      <button class="secondary" (click)="cancelUnknownEvent()">Cancel</button>
-    </div>
-  </div>
-</div>
