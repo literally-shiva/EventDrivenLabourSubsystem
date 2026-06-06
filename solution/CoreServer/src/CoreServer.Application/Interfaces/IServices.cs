@@ -19,6 +19,7 @@ public interface IProjectQueryService
     Task<ProjectTimelineDto> GetTimelineAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<WorkTimelineDto>> GetWorksAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task<IReadOnlyCollection<DetectedEventDto>> GetEventsAsync(Guid projectId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyCollection<MetricHistoryDto>> GetMetricsAsync(Guid projectId, CancellationToken cancellationToken = default);
 }
 
 public interface IMarkovStateEngine

@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { firstValueFrom } from 'rxjs';
 import { gantt } from 'dhtmlx-gantt';
 import { ApiService } from './api.service';
-import { DetectedEvent, ProjectModel, ProjectSaveRequest, ProjectTimeline, WorkDependency, WorkModel } from './models';
+import { DetectedEvent, ProjectModel, ProjectSaveRequest, ProjectTimeline, WorkDependency, WorkModel, MetricHistory } from './models';
 import { SignalrService } from './signalr.service';
 
 @Component({
@@ -15,7 +15,8 @@ import { SignalrService } from './signalr.service';
   styleUrl: './app.component.css'
 })
 export class AppComponent implements OnInit {
-  @ViewChild('ganttHost', { static: true }) ganttHost!: ElementRef<HTMLDivElement>;
+  @ViewChild('ganttHost', { static: false }) ganttHost?: ElementRef<HTMLDivElement>;
+  @ViewChild('metricsChart') metricsChart?: ElementRef<HTMLCanvasElement>;
 
   private readonly api = inject(ApiService);
   private readonly signalr = inject(SignalrService);
@@ -31,13 +32,26 @@ export class AppComponent implements OnInit {
   unknownEventName = '';
   statusMessage = '';
   isSaving = false;
+  activeTab: 'gantt' | 'metrics' = 'gantt';
+  metricsHistory: MetricHistory[] = [];
 
   private suppressGanttEvents = false;
+  private eventsByWorkId = new Map<string, DetectedEvent[]>();
 
   async ngOnInit(): Promise<void> {
-    this.configureGantt();
-    gantt.init(this.ganttHost.nativeElement);
-    this.attachGanttEvents();
+    try {
+      this.configureGantt();
+      this.attachGanttEvents();
+      this.addEventLayer();
+      // Gantt init will happen after view is rendered
+      setTimeout(() => {
+        if (this.ganttHost?.nativeElement) {
+          gantt.init(this.ganttHost.nativeElement);
+        }
+      }, 0);
+    } catch {
+      // Gantt init failure must not block project loading below
+    }
 
     let projectLoadFailed = false;
     try {
@@ -51,9 +65,12 @@ export class AppComponent implements OnInit {
       await this.signalr.start();
       this.signalr.workUpdated$.subscribe(work => this.applyWorkUpdate(work));
       this.signalr.eventDetected$.subscribe(eventItem => {
-        if (this.timeline && this.activeProject?.id === eventItem.projectId) {
+        if (this.activeProject?.id !== eventItem.projectId) return;
+        if (this.timeline) {
           this.timeline.events = [eventItem, ...this.timeline.events];
         }
+        const list = this.eventsByWorkId.get(eventItem.workId) ?? [];
+        this.eventsByWorkId.set(eventItem.workId, [...list, eventItem]);
       });
       this.signalr.durationChanged$.subscribe(change => {
         const item = this.works.find(work => work.id === change.workId);
@@ -319,14 +336,12 @@ export class AppComponent implements OnInit {
         return;
       }
 
-      // Parse header → column index map
       const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
       const col = (name: string) => headers.indexOf(name);
 
       const parsedWorks: WorkModel[] = [];
       for (const line of lines.slice(1)) {
         if (!line.trim()) continue;
-        // Handle quoted fields (e.g. "Work name with comma")
         const cells = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|(?<=,)$|^(?=,))/g)?.map(c => c.replace(/^"|"$/g, '').trim()) ?? line.split(',').map(c => c.trim());
 
         const name = col('name') >= 0 ? (cells[col('name')] || `Work ${parsedWorks.length + 1}`) : `Work ${parsedWorks.length + 1}`;
@@ -393,6 +408,32 @@ export class AppComponent implements OnInit {
     return this.works.find(work => work.id === this.selectedWorkId);
   }
 
+  getWorkName(workId: string): string {
+    return this.works.find(w => w.id === workId)?.name ?? workId.slice(0, 8);
+  }
+
+  getEventMarkerClass(eventType: string): string {
+    const map: Record<string, string> = {
+      ApprovalDelayed:          'approval',
+      CollisionDetected:        'collision',
+      DesignRequirementChanged: 'design',
+      DocumentationReturned:    'documentation',
+      ResourceShortage:         'resource',
+      ExpertReviewFailed:       'expert',
+    };
+    return map[eventType] ?? 'unknown';
+  }
+
+  switchToTab(tab: 'gantt' | 'metrics'): void {
+    this.activeTab = tab;
+    if (tab === 'gantt') {
+      // Wait for DOM to render, then reinitialize gantt
+      setTimeout(() => this.renderGantt(), 100);
+    } else if (tab === 'metrics') {
+      this.loadMetricsData();
+    }
+  }
+
   private configureGantt(): void {
     gantt.config.grid_width = 380;
     gantt.config.open_tree_initially = true;
@@ -409,7 +450,6 @@ export class AppComponent implements OnInit {
       { name: 'stabilityState', label: 'State', align: 'center', width: 40 },
       { name: 'add', label: '', width: 40 }
     ];
-    // Colour the Gantt bar by stability state so Markov transitions are immediately visible
     gantt.templates.task_class = (_start: Date, _end: Date, task: any): string => {
       const s: string = task.stabilityState || '';
       if (s.includes('Critical')) return 'stability-critical';
@@ -419,12 +459,19 @@ export class AppComponent implements OnInit {
       return 'stability-stable';
     };
     gantt.templates.task_text = (_start: Date, _end: Date, task: any) => task.text as string;
-    // Show truncated stability label inside bar
     gantt.templates.rightside_text = (_start: Date, _end: Date, task: any) => {
       const s: string = task.stabilityState || '';
       if (s === 'S0Stable') return '';
       return `<span class="state-badge">${s.replace('WorkStabilityState.', '').replace('Sensitivity', '')}</span>`;
     };
+  }
+
+  private addEventLayer(): void {
+    // Event markers removed - not implemented
+  }
+
+  private renderEventMarkers(): void {
+    // Event markers removed - not implemented
   }
 
   private attachGanttEvents(): void {
@@ -442,7 +489,6 @@ export class AppComponent implements OnInit {
       const startDate = task.start_date ?? new Date();
       const duration = Math.max(1, Math.round(task.duration || 1));
 
-      // Calculate endDate from startDate + duration
       const endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + duration);
 
@@ -531,6 +577,7 @@ export class AppComponent implements OnInit {
   }
 
   private applyProject(project: ProjectModel): void {
+    this.eventsByWorkId.clear();
     this.activeProject = {
       ...project,
       startDate: this.toDateOnly(project.startDate),
@@ -564,6 +611,13 @@ export class AppComponent implements OnInit {
     if (!this.timeline) {
       this.renderGantt();
       return;
+    }
+
+    this.eventsByWorkId.clear();
+    for (const ev of this.timeline.events) {
+      const list = this.eventsByWorkId.get(ev.workId) ?? [];
+      list.push(ev);
+      this.eventsByWorkId.set(ev.workId, list);
     }
 
     const timelineById = new Map(this.timeline.works.map(work => [work.id, work]));
@@ -607,8 +661,6 @@ export class AppComponent implements OnInit {
     }
 
     const startDate = task.start_date ?? new Date(work.startDate);
-    // task.plannedDuration is the user-editable plan field stored on the task;
-    // fall back to task.duration only when the task was added without our custom field.
     const planned = Math.max(1, Math.round((task as any).plannedDuration || task.duration || work.plannedDuration));
 
     work.name = task.text || work.name;
@@ -666,14 +718,23 @@ export class AppComponent implements OnInit {
   }
 
   private renderGantt(): void {
+    if (!this.ganttHost?.nativeElement) {
+      return;
+    }
+
+    // Re-initialize gantt every time to ensure it's properly attached to DOM
+    try {
+      gantt.init(this.ganttHost.nativeElement);
+    } catch {
+      // Already initialized, continue
+    }
+
     this.suppressGanttEvents = true;
     gantt.clearAll();
     gantt.parse({
       data: this.works.map(work => {
         const startDate = this.parseLocalDate(work.startDate);
         const planned = Math.max(1, Math.round(work.plannedDuration));
-        // Use currentDuration for the bar when it exceeds the plan (event impacts);
-        // fall back to planned when currentDuration hasn't been set yet.
         const current = work.currentDuration > 0 ? Math.round(work.currentDuration) : planned;
         const barDuration = Math.max(planned, current);
 
@@ -681,9 +742,9 @@ export class AppComponent implements OnInit {
           id: work.id,
           text: work.name,
           start_date: startDate,
-          duration: barDuration,           // drives the visible bar length
-          plannedDuration: planned,        // shown in 'Plan' column
-          currentDuration: current,        // shown in 'Curr' column
+          duration: barDuration,
+          plannedDuration: planned,
+          currentDuration: current,
           stabilityState: work.currentState || 'S0Stable',
           progress: Math.max(0, Math.min(1, work.percentComplete / 100))
         };
@@ -704,9 +765,7 @@ export class AppComponent implements OnInit {
   }
 
   private parseLocalDate(dateString: string): Date {
-    // Strip time component if present (e.g. "2025-06-01T00:00:00Z" → "2025-06-01")
     const datePart = dateString.split('T')[0];
-    // Parse YYYY-MM-DD as local date, not UTC
     const [year, month, day] = datePart.split('-').map(Number);
     return new Date(year, month - 1, day);
   }
@@ -724,7 +783,6 @@ export class AppComponent implements OnInit {
 
   private toDateOnly(value: string | Date): string {
     const date = value instanceof Date ? value : new Date(value);
-    // Use local date components to avoid timezone issues
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
@@ -760,5 +818,174 @@ export class AppComponent implements OnInit {
     }
 
     return 'Request failed.';
+  }
+
+  async loadMetricsData(): Promise<void> {
+    if (!this.activeProject?.id) {
+      return;
+    }
+
+    try {
+      this.metricsHistory = await firstValueFrom(this.api.getMetrics(this.activeProject.id));
+      console.log('Loaded metrics:', this.metricsHistory.length, 'records');
+      if (this.metricsHistory.length > 0) {
+        console.log('Sample metric:', this.metricsHistory[0]);
+      }
+      setTimeout(() => this.renderMetricsChart(), 100);
+    } catch (error) {
+      this.statusMessage = `Failed to load metrics: ${this.toErrorMessage(error)}`;
+    }
+  }
+
+  private renderMetricsChart(): void {
+    const canvas = this.metricsChart?.nativeElement;
+    if (!canvas || !this.metricsHistory.length) {
+      return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return;
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const width = rect.width;
+    const height = rect.height;
+    const padding = { top: 20, right: 20, bottom: 60, left: 60 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+
+    const sortedMetrics = [...this.metricsHistory].sort((a, b) =>
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    const timeExtent = [
+      new Date(sortedMetrics[0].timestamp).getTime(),
+      new Date(sortedMetrics[sortedMetrics.length - 1].timestamp).getTime()
+    ];
+
+    const maxCollisions = Math.max(...sortedMetrics.map(m => m.collisionCount), 5);
+    const maxChanges = Math.max(...sortedMetrics.map(m => m.changesCount), 5);
+    const maxRework = Math.max(...sortedMetrics.map(m => m.reworkCount), 5);
+    const maxApprovalDelays = Math.max(...sortedMetrics.map(m => m.approvalDelayDays), 5);
+    const maxDocVersions = Math.max(...sortedMetrics.map(m => m.documentationVersionCount), 5);
+    const maxApprovals = Math.max(...sortedMetrics.map(m => m.approvalCount), 5);
+    const maxValue = Math.max(maxCollisions, maxChanges, maxRework, maxApprovalDelays, maxDocVersions, maxApprovals, 10);
+
+    console.log('Max values:', { maxCollisions, maxChanges, maxRework, maxApprovalDelays, maxDocVersions, maxApprovals, maxValue });
+
+    const xScale = (timestamp: string) => {
+      const t = new Date(timestamp).getTime();
+      return padding.left + ((t - timeExtent[0]) / (timeExtent[1] - timeExtent[0])) * chartWidth;
+    };
+
+    const yScale = (value: number) => {
+      return padding.top + chartHeight - (value / maxValue) * chartHeight;
+    };
+
+    // Horizontal grid lines
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 5; i++) {
+      const y = padding.top + (chartHeight / 5) * i;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(padding.left + chartWidth, y);
+      ctx.stroke();
+
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '11px Inter, Arial';
+      ctx.textAlign = 'right';
+      ctx.fillText(Math.round(maxValue * (1 - i / 5)).toString(), padding.left - 8, y + 4);
+    }
+
+    // Vertical grid lines and date labels
+    ctx.strokeStyle = '#e5e7eb';
+    const timeStep = Math.max(1, Math.floor(sortedMetrics.length / 6));
+    for (let i = 0; i < sortedMetrics.length; i += timeStep) {
+      const x = xScale(sortedMetrics[i].timestamp);
+      ctx.beginPath();
+      ctx.moveTo(x, padding.top);
+      ctx.lineTo(x, padding.top + chartHeight);
+      ctx.stroke();
+
+      const date = new Date(sortedMetrics[i].timestamp);
+      const day = String(date.getDate()).padStart(2, '0');
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+
+      ctx.fillStyle = '#6b7280';
+      ctx.font = '10px Inter, Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${day}.${month}`, x, height - 30);
+      ctx.fillText(`${hours}:${minutes}`, x, height - 15);
+    }
+
+    const drawLine = (color: string, valueExtractor: (m: MetricHistory) => number) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      sortedMetrics.forEach((metric, i) => {
+        const x = xScale(metric.timestamp);
+        const y = yScale(valueExtractor(metric));
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      });
+      ctx.stroke();
+    };
+
+    // Draw metric lines
+    drawLine('#ef4444', m => m.collisionCount);
+    drawLine('#f59e0b', m => m.changesCount);
+    drawLine('#8b5cf6', m => m.reworkCount);
+    drawLine('#3b82f6', m => m.approvalDelayDays);
+    drawLine('#10b981', m => m.documentationVersionCount);
+    drawLine('#ec4899', m => m.approvalCount);
+
+    // Draw event markers
+    if (this.timeline?.events) {
+      this.timeline.events.forEach(event => {
+        const x = xScale(event.timestamp);
+        const y = padding.top + chartHeight;
+
+        ctx.fillStyle = this.getEventColor(event.eventType);
+        ctx.beginPath();
+        ctx.arc(x, y - 10, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = this.getEventColor(event.eventType);
+        ctx.lineWidth = 1;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath();
+        ctx.moveTo(x, padding.top);
+        ctx.lineTo(x, padding.top + chartHeight);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+    }
+  }
+
+  private getEventColor(eventType: string): string {
+    const map: Record<string, string> = {
+      ApprovalDelayed: '#3b82f6',
+      CollisionDetected: '#ef4444',
+      DesignRequirementChanged: '#8b5cf6',
+      DocumentationReturned: '#f59e0b',
+      ResourceShortage: '#ec4899',
+      ExpertReviewFailed: '#f97316',
+    };
+    return map[eventType] ?? '#6b7280';
   }
 }

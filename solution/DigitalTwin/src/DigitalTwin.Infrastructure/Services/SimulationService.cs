@@ -36,7 +36,14 @@ public class SimulationService(
 
     public async Task<ProjectDto> UpdateProjectAsync(Guid projectId, CreateProjectRequest request, CancellationToken cancellationToken = default)
     {
-        var project = await projectRepository.GetByIdAsync(projectId, cancellationToken) ?? throw new InvalidOperationException("Project not found.");
+        var project = await projectRepository.GetByIdAsync(projectId, cancellationToken);
+
+        // Если проект не существует, создаём новый с заданным ID (импорт из клиента)
+        if (project == null)
+        {
+            return await CreateProjectWithIdAsync(projectId, request, cancellationToken);
+        }
+
         if (project.IsSimulationRunning)
         {
             throw new InvalidOperationException("Cannot edit project while simulation is running.");
@@ -186,6 +193,27 @@ public class SimulationService(
         return new SimulationStateDto(project.Id, project.IsSimulationRunning, project.CurrentSimulationTime, latestMetrics.Select(x => x.ToDto()).ToArray());
     }
 
+    private async Task<ProjectDto> CreateProjectWithIdAsync(Guid projectId, CreateProjectRequest request, CancellationToken cancellationToken)
+    {
+        var project = BuildProjectWithId(projectId, request);
+        await projectRepository.AddAsync(project, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // Add dependencies separately to avoid EF duplicate-tracking
+        var deps = BuildDependencyList(project, request.Dependencies);
+        if (deps.Count > 0)
+        {
+            dbContext.WorkDependencies.AddRange(deps);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        // Reload the project with all relationships populated
+        dbContext.ChangeTracker.Clear();
+        var final = await projectRepository.GetByIdAsync(project.Id, cancellationToken)
+                    ?? throw new InvalidOperationException("Project not found after save.");
+        return final.ToDto();
+    }
+
     private static Project BuildProject(CreateProjectRequest request)
     {
         var project = new Project
@@ -205,6 +233,26 @@ public class SimulationService(
 
         // Dependencies are NOT added here to avoid EF duplicate-tracking.
         // They are added separately after the project graph is saved (in CreateProjectAsync).
+        return project;
+    }
+
+    private static Project BuildProjectWithId(Guid projectId, CreateProjectRequest request)
+    {
+        var project = new Project
+        {
+            Id = projectId,
+            Name = request.Name,
+            StartDate = ToUtc(request.StartDate),
+            EndDate = ToUtc(request.EndDate),
+            CurrentSimulationTime = ToUtc(request.StartDate),
+            IsSimulationRunning = false
+        };
+
+        foreach (var work in BuildWorks(project.Id, request.Works))
+        {
+            project.Works.Add(work);
+        }
+
         return project;
     }
 

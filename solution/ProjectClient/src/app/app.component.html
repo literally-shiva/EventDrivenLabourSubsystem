@@ -118,9 +118,13 @@
         <span>{{ timeline.events.length }}</span>
       </div>
       <div class="event-item" *ngFor="let event of timeline.events">
-        <strong>{{ event.eventType }}</strong>
-        <span>{{ event.timestamp | date:'short' }}</span>
-        <small>{{ event.workId }}</small>
+        <div class="event-item-header">
+          <span class="event-dot event-marker event-marker--{{ getEventMarkerClass(event.eventType) }}"></span>
+          <strong>{{ event.eventType }}</strong>
+          <span class="event-confidence">{{ (event.confidence * 100) | number:'1.0-0' }}%</span>
+        </div>
+        <span class="muted">{{ getWorkName(event.workId) }}</span>
+        <span class="muted">{{ event.timestamp | date:'dd.MM HH:mm' }}</span>
       </div>
     </section>
   </aside>
@@ -131,9 +135,25 @@
         <h2>{{ activeProject?.name || 'No project selected' }}</h2>
         <p *ngIf="activeProject">Works: {{ works.length }} | Links: {{ dependencies.length }}</p>
       </div>
+      <div class="tab-bar">
+        <button class="tab-button" [class.active]="activeTab === 'gantt'" (click)="switchToTab('gantt')">Gantt Chart</button>
+        <button class="tab-button" [class.active]="activeTab === 'metrics'" (click)="switchToTab('metrics')">Metrics</button>
+      </div>
     </section>
 
-    <div #ganttHost class="gantt-host"></div>
+    <div #ganttHost class="gantt-host" *ngIf="activeTab === 'gantt'"></div>
+
+    <div class="metrics-host" *ngIf="activeTab === 'metrics'">
+      <canvas #metricsChart class="metrics-canvas"></canvas>
+      <div class="metrics-legend">
+        <div class="legend-item"><span class="legend-color" style="background: #ef4444;"></span> Collision Count (коллизии)</div>
+        <div class="legend-item"><span class="legend-color" style="background: #f59e0b;"></span> Changes Count (изменения ТЗ)</div>
+        <div class="legend-item"><span class="legend-color" style="background: #8b5cf6;"></span> Rework Count (возвраты на доработку)</div>
+        <div class="legend-item"><span class="legend-color" style="background: #3b82f6;"></span> Approval Delays (задержки получения ТУ, дни)</div>
+        <div class="legend-item"><span class="legend-color" style="background: #10b981;"></span> Documentation Versions (документы на согласовании)</div>
+        <div class="legend-item"><span class="legend-color" style="background: #ec4899;"></span> Approval Count (согласования)</div>
+      </div>
+    </div>
   </main>
 </div>
 

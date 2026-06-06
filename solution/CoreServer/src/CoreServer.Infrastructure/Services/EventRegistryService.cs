@@ -10,12 +10,17 @@ public class EventRegistryService(IEventPatternRepository eventPatternRepository
 {
     public async Task<EventPatternDto> CreatePatternAsync(CreateEventPatternRequest request, CancellationToken cancellationToken = default)
     {
+        var knownType = Enum.TryParse<EventType>(request.EventType, true, out var eventType)
+            ? eventType
+            : EventType.Unknown;
+
         var pattern = new EventPattern
         {
             Id = Guid.NewGuid(),
             Name = request.Name,
             Vector = JsonSerializer.Serialize(request.Vector),
-            EventType = Enum.TryParse<EventType>(request.EventType, true, out var eventType) ? eventType : EventType.Unknown,
+            EventType = knownType,
+            EventTypeName = string.IsNullOrWhiteSpace(request.EventType) ? knownType.ToString() : request.EventType,
             AverageDelayImpact = request.AverageDelayImpact,
             CreatedAt = DateTime.UtcNow
         };
@@ -31,9 +36,11 @@ public class EventRegistryService(IEventPatternRepository eventPatternRepository
 
     public async Task RegisterUnknownEventAsync(RegisterUnknownEventRequest request, CancellationToken cancellationToken = default)
     {
-        // Try to parse the user-provided name as a known EventType so the SVM learns the correct label.
-        // If the name does not match any enum value, keep Unknown.
-        var eventType = Enum.TryParse<EventType>(request.Name, ignoreCase: true, out var parsed)
+        // The user-provided name becomes the SVM training label exactly as typed.
+        // This allows users to define new event types beyond the fixed enum.
+        // EventType enum is set to the matching known value when the name matches one,
+        // otherwise Unknown — but the SVM uses EventTypeName, not the enum.
+        var knownType = Enum.TryParse<EventType>(request.Name, ignoreCase: true, out var parsed)
             ? parsed
             : EventType.Unknown;
 
@@ -42,7 +49,8 @@ public class EventRegistryService(IEventPatternRepository eventPatternRepository
             Id = Guid.NewGuid(),
             Name = request.Name,
             Vector = JsonSerializer.Serialize(request.Vector),
-            EventType = eventType,
+            EventType = knownType,
+            EventTypeName = request.Name,
             AverageDelayImpact = 1.15,
             CreatedAt = DateTime.UtcNow
         };
@@ -56,10 +64,20 @@ public class EventRegistryService(IEventPatternRepository eventPatternRepository
     {
         var patterns = await eventPatternRepository.GetAllAsync(cancellationToken);
         var request = new MlTrainRequest(patterns.Select(pattern =>
-            new TrainingEventDto(pattern.EventType.ToString(), JsonSerializer.Deserialize<double[]>(pattern.Vector) ?? [])).ToArray());
+        {
+            // Use EventTypeName when available (preserves user-defined labels).
+            // Fall back to EventType.ToString() for legacy/seeded patterns that
+            // were created before EventTypeName was introduced.
+            var label = string.IsNullOrWhiteSpace(pattern.EventTypeName)
+                ? pattern.EventType.ToString()
+                : pattern.EventTypeName;
+            return new TrainingEventDto(label, JsonSerializer.Deserialize<double[]>(pattern.Vector) ?? []);
+        }).ToArray());
         await mlServiceClient.TrainAsync(request, cancellationToken);
     }
 
     private static EventPatternDto ToDto(EventPattern pattern) =>
-        new(pattern.Id, pattern.Name, pattern.Vector, pattern.EventType.ToString(), pattern.AverageDelayImpact, pattern.CreatedAt);
+        new(pattern.Id, pattern.Name, pattern.Vector,
+            string.IsNullOrWhiteSpace(pattern.EventTypeName) ? pattern.EventType.ToString() : pattern.EventTypeName,
+            pattern.AverageDelayImpact, pattern.CreatedAt);
 }

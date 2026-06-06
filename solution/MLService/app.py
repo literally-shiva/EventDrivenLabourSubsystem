@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+import os
+import pathlib
 from dataclasses import dataclass
 from typing import List
 
+import joblib
 import numpy as np
 from fastapi import FastAPI
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sklearn.cluster import DBSCAN
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
+
+MODEL_PATH = pathlib.Path("./model.joblib")
+# Minimum confidence for a classification to be considered "known".
+# 0.6 is a reasonable threshold for 6-class SVM with Platt scaling.
+CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.6"))
 
 
 class MetricPointDto(BaseModel):
@@ -72,6 +80,10 @@ class ModelRegistry:
 
 app = FastAPI(title="MLService", version="1.0.0")
 registry = ModelRegistry(classifier=None, event_types=[], training_vectors=[], training_labels=[])
+
+# Restore previously trained model from disk so state survives restarts.
+if MODEL_PATH.exists():
+    registry.classifier = joblib.load(MODEL_PATH)
 
 
 def to_matrix(metrics: List[MetricPointDto]) -> np.ndarray:
@@ -136,7 +148,7 @@ def classify(request: ClassifyRequest) -> ClassifyResponse:
     prediction = registry.classifier.predict(vector)[0]
     probabilities = registry.classifier.predict_proba(vector)[0]
     confidence = float(np.max(probabilities))
-    is_known = confidence >= 0.35
+    is_known = confidence >= CONFIDENCE_THRESHOLD
 
     return ClassifyResponse(
         isKnown=is_known,
@@ -159,6 +171,8 @@ def train(request: TrainRequest) -> dict:
     registry.training_vectors = [item.vector for item in request.events]
     registry.training_labels = [item.eventType for item in request.events]
     registry.event_types = sorted(set(registry.training_labels))
+    # Persist trained model to disk so it survives process restarts.
+    joblib.dump(registry.classifier, MODEL_PATH)
     return {"status": "trained", "samples": len(request.events), "classes": registry.event_types}
 
 

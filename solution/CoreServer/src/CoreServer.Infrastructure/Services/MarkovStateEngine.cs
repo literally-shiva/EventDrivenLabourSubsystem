@@ -38,10 +38,25 @@ public class MarkovStateEngine(IWorkMarkovStateRepository stateRepository, IUnit
     {
         var severityBoost = eventType.Contains("Failed", StringComparison.OrdinalIgnoreCase) || eventType.Contains("Delayed", StringComparison.OrdinalIgnoreCase) ? 0.12 : 0.05;
 
-        // Build raw probabilities with severity boost on higher states
+        // Build raw probabilities, copying the matrix row first
         var probs = new double[5];
         for (var i = 0; i < 5; i++)
-            probs[i] = Matrix[row, i] + (i > row ? severityBoost / 4 : 0);
+            probs[i] = Matrix[row, i];
+
+        // Distribute boost toward higher states with exponential decay so that
+        // the immediately next state benefits most, not all states equally.
+        if (row < 4)
+        {
+            var remaining = severityBoost;
+            for (var i = row + 1; i < 5 && remaining > 1e-9; i++)
+            {
+                var share = remaining * 0.6;
+                probs[i] += share;
+                remaining -= share;
+            }
+            // Any rounding remainder goes to the worst state
+            if (remaining > 1e-9) probs[4] += remaining;
+        }
 
         // Normalise so row sums to exactly 1.0 (prevents CDF exceeding 1.0)
         var sum = 0d;

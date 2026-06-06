@@ -10,4 +10,9 @@ public class CoreServerClient(HttpClient httpClient) : ICoreServerClient
     {
         await httpClient.PostAsJsonAsync("/api/metrics", batch, cancellationToken);
     }
+
+    public async Task SyncWorkDatesAsync(Guid projectId, IEnumerable<WorkDateUpdateDto> updates, CancellationToken cancellationToken = default)
+    {
+        await httpClient.PostAsJsonAsync($"/api/projects/{projectId}/sync-dates", updates, cancellationToken);
+    }
 }

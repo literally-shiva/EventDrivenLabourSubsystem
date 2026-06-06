@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { ProjectModel, ProjectSaveRequest, ProjectTimeline } from './models';
+import { ProjectModel, ProjectSaveRequest, ProjectTimeline, MetricHistory } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -44,5 +44,9 @@ export class ApiService {
 
   registerUnknownEvent(payload: { workId: string; projectId: string; name: string; vector: number[] }): Observable<void> {
     return this.http.post<void>(`${this.coreBaseUrl}/events/register-unknown`, payload);
+  }
+
+  getMetrics(projectId: string): Observable<MetricHistory[]> {
+    return this.http.get<MetricHistory[]>(`${this.coreBaseUrl}/projects/${projectId}/metrics`);
   }
 }

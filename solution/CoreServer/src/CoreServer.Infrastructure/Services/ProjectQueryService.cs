@@ -3,7 +3,7 @@ using CoreServer.Application.Interfaces;
 
 namespace CoreServer.Infrastructure.Services;
 
-public class ProjectQueryService(IWorkRepository workRepository, IDetectedEventRepository detectedEventRepository) : IProjectQueryService
+public class ProjectQueryService(IWorkRepository workRepository, IDetectedEventRepository detectedEventRepository, IMetricRepository metricRepository) : IProjectQueryService
 {
     public async Task<ProjectTimelineDto> GetTimelineAsync(Guid projectId, CancellationToken cancellationToken = default)
     {
@@ -25,5 +25,14 @@ public class ProjectQueryService(IWorkRepository workRepository, IDetectedEventR
             string.IsNullOrEmpty(x.FeatureVector)
                 ? []
                 : System.Text.Json.JsonSerializer.Deserialize<double[]>(x.FeatureVector) ?? []))
+        .ToArray();
+
+    public async Task<IReadOnlyCollection<MetricHistoryDto>> GetMetricsAsync(Guid projectId, CancellationToken cancellationToken = default) =>
+        (await metricRepository.GetByProjectAsync(projectId, cancellationToken))
+        .Select(x => new MetricHistoryDto(
+            x.Id, x.ProjectId, x.WorkId, x.WorkName, x.Timestamp,
+            x.WorkersCount, x.ModelDataVolume, x.ChangesCount, x.CollisionCount,
+            x.ApprovalCount, x.ApprovalDelayDays, x.DocumentationVersionCount,
+            x.ReworkCount, x.ProgressPercent, x.SimulatedEventType))
         .ToArray();
 }

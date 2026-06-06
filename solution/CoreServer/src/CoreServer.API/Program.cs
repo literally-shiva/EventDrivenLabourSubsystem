@@ -3,6 +3,7 @@ using CoreServer.Infrastructure;
 using CoreServer.Infrastructure.Persistence;
 using CoreServer.Infrastructure.Persistence.Seed;
 using CoreServer.Infrastructure.Realtime;
+using Microsoft.EntityFrameworkCore;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,6 +29,10 @@ using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<CoreServerDbContext>();
     dbContext.Database.EnsureCreated();
+    // Add columns introduced after the initial schema was created.
+    // IF NOT EXISTS makes this idempotent — safe to run on every startup.
+    await dbContext.Database.ExecuteSqlRawAsync(
+        "ALTER TABLE \"EventPatterns\" ADD COLUMN IF NOT EXISTS \"EventTypeName\" text NOT NULL DEFAULT ''");
     await CoreServerSeed.SeedAsync(dbContext);
 
     // Warm up SVM: retrain on all existing patterns so classification works from the first tick.

@@ -60,3 +60,21 @@ export interface DetectedEvent {
   timestamp: string;
   featureVector?: number[];
 }
+
+export interface MetricHistory {
+  id: string;
+  projectId: string;
+  workId: string;
+  workName: string;
+  timestamp: string;
+  workersCount: number;
+  modelDataVolume: number;
+  changesCount: number;
+  collisionCount: number;
+  approvalCount: number;
+  approvalDelayDays: number;
+  documentationVersionCount: number;
+  reworkCount: number;
+  progressPercent: number;
+  simulatedEventType: string;
+}

@@ -5,4 +5,5 @@ namespace DigitalTwin.Application.Interfaces;
 public interface ICoreServerClient
 {
     Task PushMetricsAsync(CoreMetricBatchDto batch, CancellationToken cancellationToken = default);
+    Task SyncWorkDatesAsync(Guid projectId, IEnumerable<WorkDateUpdateDto> updates, CancellationToken cancellationToken = default);
 }

@@ -7,8 +7,7 @@ namespace CoreServer.Infrastructure.Services;
 public class DurationRecalculationEngine(
     IWorkRepository workRepository,
     IWorkMarkovStateRepository stateRepository,
-    IDurationHistoryRepository durationHistoryRepository,
-    IUnitOfWork unitOfWork) : IDurationRecalculationEngine
+    IDurationHistoryRepository durationHistoryRepository) : IDurationRecalculationEngine
 {
     public async Task<double> RecalculateAsync(Guid workId, Guid eventId, string eventType, CancellationToken cancellationToken = default)
     {
@@ -16,26 +15,32 @@ public class DurationRecalculationEngine(
         var state = await stateRepository.GetAsync(workId, cancellationToken);
         var stateImpact = state?.CurrentState switch
         {
-            WorkStabilityState.S1LowSensitive => 1.05,
-            WorkStabilityState.S2MediumSensitive => 1.12,
-            WorkStabilityState.S3HighSensitive => 1.22,
-            WorkStabilityState.S4Critical => 1.35,
-            _ => 1.0
+            WorkStabilityState.S1LowSensitive    => 1.1,
+            WorkStabilityState.S2MediumSensitive => 1.3,
+            WorkStabilityState.S3HighSensitive   => 1.6,
+            WorkStabilityState.S4Critical        => 2.0,
+            _                                    => 1.0
         };
 
         var eventImpact = eventType switch
         {
-            nameof(EventType.ApprovalDelayed) => 1.18,
-            nameof(EventType.DocumentationReturned) => 1.15,
-            nameof(EventType.CollisionDetected) => 1.12,
-            nameof(EventType.ResourceShortage) => 1.14,
-            nameof(EventType.ExpertReviewFailed) => 1.20,
-            _ => 1.08
+            nameof(EventType.ApprovalDelayed)          => 1.18,
+            nameof(EventType.DocumentationReturned)    => 1.15,
+            nameof(EventType.CollisionDetected)        => 1.12,
+            nameof(EventType.ResourceShortage)         => 1.14,
+            nameof(EventType.ExpertReviewFailed)       => 1.20,
+            nameof(EventType.DesignRequirementChanged) => 1.10,
+            _                                          => 1.08
         };
 
         var previousDuration = work.CurrentDuration <= 0 ? work.PlannedDuration : work.CurrentDuration;
-        var newDuration = Math.Round(previousDuration * eventImpact * stateImpact, 2);
+        var raw = Math.Round(previousDuration * eventImpact * stateImpact, 2);
+        // Cap at 3× planned duration so runaway compound events stay realistic
+        var newDuration = Math.Min(raw, work.PlannedDuration * 3.0);
         work.CurrentDuration = newDuration;
+
+        // Обновление EndDate на основе новой длительности
+        work.EndDate = work.StartDate.AddDays(newDuration);
 
         await durationHistoryRepository.AddAsync(new DurationHistory
         {
@@ -48,7 +53,8 @@ public class DurationRecalculationEngine(
         }, cancellationToken);
 
         await workRepository.AddOrUpdateAsync(work, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        // SaveChanges is intentionally omitted here: MetricsProcessingService owns
+        // the transaction boundary and calls SaveChanges once after all candidates.
         return newDuration;
     }
 }
