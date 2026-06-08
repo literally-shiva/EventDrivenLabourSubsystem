@@ -193,6 +193,88 @@ public class SimulationService(
         return new SimulationStateDto(project.Id, project.IsSimulationRunning, project.CurrentSimulationTime, latestMetrics.Select(x => x.ToDto()).ToArray());
     }
 
+    public async Task SyncWorkDatesAsync(Guid projectId, IEnumerable<WorkDateUpdateDto> updates, CancellationToken cancellationToken = default)
+    {
+        var project = await projectRepository.GetByIdAsync(projectId, cancellationToken);
+        if (project is null)
+        {
+            return;
+        }
+
+        foreach (var update in updates)
+        {
+            var work = project.Works.FirstOrDefault(w => w.Id == update.WorkId);
+            if (work is not null)
+            {
+                work.StartDate = update.StartDate;
+                work.EndDate = update.EndDate;
+                // Update CurrentDuration based on new EndDate
+                work.CurrentDuration = Math.Max(0, (int)Math.Round((update.EndDate - work.StartDate).TotalDays));
+            }
+        }
+
+        // After updating dates, cascade to dependent works
+        UpdateDependentWorkDatesInMemory(project);
+
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    private static void UpdateDependentWorkDatesInMemory(Project project)
+    {
+        // Topological sort to process works in dependency order
+        var visited = new HashSet<Guid>();
+        var sorted = new List<Work>();
+
+        void Visit(Work work)
+        {
+            if (visited.Contains(work.Id))
+                return;
+
+            visited.Add(work.Id);
+
+            // Visit parent works first
+            foreach (var dep in work.ChildDependencies)
+            {
+                var parent = project.Works.FirstOrDefault(w => w.Id == dep.ParentWorkId);
+                if (parent != null)
+                {
+                    Visit(parent);
+                }
+            }
+
+            sorted.Add(work);
+        }
+
+        foreach (var work in project.Works)
+        {
+            Visit(work);
+        }
+
+        // Update dates in topological order
+        foreach (var work in sorted)
+        {
+            var parentEndDates = work.ChildDependencies
+                .Select(dep => project.Works.FirstOrDefault(w => w.Id == dep.ParentWorkId)?.EndDate)
+                .Where(date => date.HasValue)
+                .Select(date => date!.Value)
+                .ToList();
+
+            if (parentEndDates.Any())
+            {
+                var maxParentEndDate = parentEndDates.Max();
+
+                if (work.StartDate < maxParentEndDate)
+                {
+                    work.StartDate = maxParentEndDate;
+                    if (!work.IsCompleted)
+                    {
+                        work.EndDate = work.StartDate.AddDays(work.CurrentDuration);
+                    }
+                }
+            }
+        }
+    }
+
     private async Task<ProjectDto> CreateProjectWithIdAsync(Guid projectId, CreateProjectRequest request, CancellationToken cancellationToken)
     {
         var project = BuildProjectWithId(projectId, request);

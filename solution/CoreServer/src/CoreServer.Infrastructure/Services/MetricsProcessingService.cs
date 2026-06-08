@@ -17,6 +17,7 @@ public class MetricsProcessingService(
     IMarkovStateEngine markovStateEngine,
     IDurationRecalculationEngine durationRecalculationEngine,
     IRealtimeNotifier realtimeNotifier,
+    IDigitalTwinClient digitalTwinClient,
     ILogger<MetricsProcessingService> logger) : IMetricsProcessingService
 {
     public async Task ProcessMetricsAsync(MetricsBatchRequest request, CancellationToken cancellationToken = default)
@@ -96,9 +97,11 @@ public class MetricsProcessingService(
         MlClusterResponse clusterResponse;
         try
         {
-            clusterResponse = await mlServiceClient.ClusterAsync(new MlClusterRequest(request.Metrics.Select(item =>
-                new MlMetricPointDto(item.WorkId, item.WorkersCount, item.ModelDataVolume,
-                    item.ChangesCount, item.CollisionCount, item.ApprovalDelayDays, item.ReworkCount)).ToArray()),
+            clusterResponse = await mlServiceClient.ClusterAsync(new MlClusterRequest(
+                request.Metrics.Select(item =>
+                    new MlMetricPointDto(item.WorkId, item.WorkersCount, item.ModelDataVolume,
+                        item.ChangesCount, item.CollisionCount, item.ApprovalDelayDays, item.ReworkCount)).ToArray(),
+                request.ProjectId.ToString()),
                 cancellationToken);
         }
         catch (Exception ex)
@@ -181,5 +184,21 @@ public class MetricsProcessingService(
 
         // 6. Single save for all event-related state changes
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // 7. Sync changed work dates back to DigitalTwin so dependent works can be recalculated
+        var changedWorks = new List<WorkDateUpdateDto>();
+        foreach (var candidate in clusterResponse.Events)
+        {
+            var work = await workRepository.GetAsync(candidate.WorkId, cancellationToken);
+            if (work is not null)
+            {
+                changedWorks.Add(new WorkDateUpdateDto(work.Id, work.StartDate, work.EndDate));
+            }
+        }
+
+        if (changedWorks.Count > 0)
+        {
+            await digitalTwinClient.SyncWorkDatesAsync(request.ProjectId, changedWorks, cancellationToken);
+        }
     }
 }

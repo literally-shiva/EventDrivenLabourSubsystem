@@ -652,6 +652,9 @@ export class AppComponent implements OnInit {
       return live
         ? {
             ...work,
+            startDate: live.startDate,
+            endDate: live.endDate,
+            plannedDuration: live.plannedDuration,
             currentDuration: Math.max(0, Math.round(live.currentDuration || work.currentDuration)),
             percentComplete: this.clampPercent(live.percentComplete ?? work.percentComplete),
             currentState: live.currentState || work.currentState
@@ -659,6 +662,8 @@ export class AppComponent implements OnInit {
         : work;
     });
 
+    this.recalculateDependentWorkDates();
+    this.syncProjectBoundsFromWorks();
     this.syncActiveProject();
     this.renderGantt();
   }
@@ -669,12 +674,18 @@ export class AppComponent implements OnInit {
       return;
     }
 
+    const currentWork = this.works[index];
     this.works[index] = {
-      ...this.works[index],
-      currentDuration: Math.max(0, Math.round(work.currentDuration ?? this.works[index].currentDuration)),
-      percentComplete: this.clampPercent(work.percentComplete ?? this.works[index].percentComplete),
-      currentState: work.currentState || this.works[index].currentState
+      ...currentWork,
+      startDate: work.startDate ?? currentWork.startDate,
+      endDate: work.endDate ?? currentWork.endDate,
+      plannedDuration: work.plannedDuration ?? currentWork.plannedDuration,
+      currentDuration: Math.max(0, Math.round(work.currentDuration ?? currentWork.currentDuration)),
+      percentComplete: this.clampPercent(work.percentComplete ?? currentWork.percentComplete),
+      currentState: work.currentState || currentWork.currentState
     };
+    this.recalculateDependentWorkDates();
+    this.syncProjectBoundsFromWorks();
     this.syncActiveProject();
     this.renderGantt();
   }
@@ -687,19 +698,68 @@ export class AppComponent implements OnInit {
     }
 
     const startDate = task.start_date ?? new Date(work.startDate);
+    const endDateFromTask = (task as any).end_date || null;
     const planned = Math.max(1, Math.round((task as any).plannedDuration || task.duration || work.plannedDuration));
 
     work.name = task.text || work.name;
     work.startDate = this.toDateOnly(startDate);
     work.plannedDuration = planned;
-
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + planned);
-    work.endDate = this.toDateOnly(endDate);
+    work.endDate = endDateFromTask
+      ? this.toDateOnly(endDateFromTask)
+      : this.toDateOnly(new Date(startDate.getTime() + planned * 86400000));
 
     this.selectedWorkId = work.id;
     this.syncProjectBoundsFromWorks();
     this.syncActiveProject();
+    this.recalculateDependentWorkDates();
+  }
+
+  private recalculateDependentWorkDates(): void {
+    if (!this.dependencies.length || !this.works.length) {
+      return;
+    }
+
+    const worksById = new Map(this.works.map(work => [work.id, work]));
+    const visited = new Set<string>();
+    const sorted: WorkModel[] = [];
+
+    const visit = (workId: string): void => {
+      if (visited.has(workId)) {
+        return;
+      }
+      visited.add(workId);
+      for (const dep of this.dependencies.filter(item => item.targetWorkId === workId)) {
+        visit(dep.sourceWorkId);
+      }
+      const work = worksById.get(workId);
+      if (work) {
+        sorted.push(work);
+      }
+    };
+
+    for (const work of this.works) {
+      visit(work.id);
+    }
+
+    for (const work of sorted) {
+      const parentEndDates = this.dependencies
+        .filter(dep => dep.targetWorkId === work.id)
+        .map(dep => worksById.get(dep.sourceWorkId))
+        .filter((parent): parent is WorkModel => !!parent)
+        .map(parent => this.parseLocalDate(parent.endDate));
+
+      if (!parentEndDates.length) {
+        continue;
+      }
+
+      const maxParentEndDate = new Date(Math.max(...parentEndDates.map(date => date.getTime())));
+      const currentStartDate = this.parseLocalDate(work.startDate);
+      if (currentStartDate < maxParentEndDate) {
+        work.startDate = this.toDateOnly(maxParentEndDate);
+        const duration = Math.max(1, Math.round(work.currentDuration || work.plannedDuration));
+        work.endDate = this.toDateOnly(this.addDays(work.startDate, duration));
+      }
+    }
   }
 
   private syncProjectBoundsFromWorks(): void {
@@ -760,17 +820,18 @@ export class AppComponent implements OnInit {
     gantt.parse({
       data: this.works.map(work => {
         const startDate = this.parseLocalDate(work.startDate);
+        const endDate = this.parseLocalDate(work.endDate);
         const planned = Math.max(1, Math.round(work.plannedDuration));
-        const current = work.currentDuration > 0 ? Math.round(work.currentDuration) : planned;
-        const barDuration = Math.max(planned, current);
+        const duration = Math.max(planned, Math.round((endDate.getTime() - startDate.getTime()) / 86400000) || planned);
 
         return {
           id: work.id,
           text: work.name,
           start_date: startDate,
-          duration: barDuration,
+          end_date: endDate,
+          duration,
           plannedDuration: planned,
-          currentDuration: current,
+          currentDuration: Math.max(0, Math.round(work.currentDuration || planned)),
           stabilityState: work.currentState || 'S0Stable',
           progress: Math.max(0, Math.min(1, work.percentComplete / 100))
         };

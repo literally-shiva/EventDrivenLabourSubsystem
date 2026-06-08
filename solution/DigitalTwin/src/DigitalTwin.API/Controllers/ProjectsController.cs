@@ -33,4 +33,11 @@ public class ProjectsController(ISimulationService simulationService) : Controll
         await simulationService.DeleteProjectAsync(id, cancellationToken);
         return NoContent();
     }
+
+    [HttpPost("{id:guid}/sync-dates")]
+    public async Task<IActionResult> SyncWorkDates(Guid id, [FromBody] IEnumerable<WorkDateUpdateDto> updates, CancellationToken cancellationToken)
+    {
+        await simulationService.SyncWorkDatesAsync(id, updates, cancellationToken);
+        return Ok();
+    }
 }

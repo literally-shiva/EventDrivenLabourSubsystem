@@ -12,4 +12,5 @@ public interface ISimulationService
     Task StartSimulationAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task StopSimulationAsync(Guid projectId, CancellationToken cancellationToken = default);
     Task<SimulationStateDto?> GetStateAsync(Guid projectId, CancellationToken cancellationToken = default);
+    Task SyncWorkDatesAsync(Guid projectId, IEnumerable<WorkDateUpdateDto> updates, CancellationToken cancellationToken = default);
 }

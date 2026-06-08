@@ -35,8 +35,17 @@ public static class DependencyInjection
         services.AddSingleton<IRealtimeNotifier, SignalRRealtimeNotifier>();
 
         services.AddSignalR();
-        services.AddHttpClient<IMlServiceClient, MlServiceClient>(client =>
-            client.BaseAddress = new Uri(configuration["Integration:MLServiceBaseUrl"] ?? "http://localhost:8000"));
+        services.AddHttpClient<IMlServiceClient, MlServiceClient>()
+            .ConfigureHttpClient(client =>
+            {
+                client.BaseAddress = new Uri(configuration["Integration:MLServiceBaseUrl"] ?? "http://localhost:8000");
+            });
+
+        services.AddHttpClient<CoreServer.Application.Interfaces.IDigitalTwinClient, DigitalTwinClient>()
+            .ConfigureHttpClient(client =>
+            {
+                client.BaseAddress = new Uri(configuration["Integration:DigitalTwinBaseUrl"] ?? "http://localhost:5002");
+            });
 
         return services;
     }

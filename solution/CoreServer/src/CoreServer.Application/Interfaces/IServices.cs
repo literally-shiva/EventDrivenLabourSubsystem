@@ -46,3 +46,8 @@ public interface IRealtimeNotifier
     Task DurationChangedAsync(Guid workId, double newDuration);
     Task UnknownEventDetectedAsync(DetectedEventDto detectedEvent);
 }
+
+public interface IDigitalTwinClient
+{
+    Task SyncWorkDatesAsync(Guid projectId, IEnumerable<WorkDateUpdateDto> updates, CancellationToken cancellationToken = default);
+}

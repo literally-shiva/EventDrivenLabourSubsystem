@@ -1,6 +1,6 @@
 namespace CoreServer.Application.DTOs;
 
-public record MlClusterRequest(IReadOnlyCollection<MlMetricPointDto> Metrics);
+public record MlClusterRequest(IReadOnlyCollection<MlMetricPointDto> Metrics, string ProjectId);
 
 public record MlMetricPointDto(
     Guid WorkId,
